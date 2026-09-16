@@ -4,82 +4,78 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuração da sua API Key do IPQS
-const IPQS_API_KEY = 'CcxLyG6R8RZfOmaVG5koV2aYTwaJeSSA';
+// CONFIGURAÇÕES
+const TARGET_URL = 'https://SEU-SITE-AQUI.com'; // Coloque aqui a URL final permitida
+const IPQS_API_KEY = 'CcxLyG6R8RZfOmaVG5koV2ayTwaJeSSA'; // Sua API Key do IPQS
 
-// Confia em cabeçalhos de proxy (Cloudflare, Heroku, Nginx, Vercel)
+// Habilita a leitura correta do IP real no Render
 app.set('trust proxy', true);
 
-// Middleware para verificação e filtragem de IP
-const verifyTraffic = async (req, res, next) => {
-    // Permite testar um IP específico passando na URL (ex: http://localhost:3000/?ip=8.8.8.8)
-    let userIP = req.query.ip || 
-                 req.headers['cf-connecting-ip'] || 
-                 req.headers['x-forwarded-for']?.split(',')[0].trim() || 
-                 req.socket.remoteAddress;
+app.use(async (req, res) => {
+    // Captura o IP real enviado pelos cabeçalhos do proxy do Render
+    let userIP = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress;
 
-    // Remove a notação IPv6 local (::ffff:) se existir
+    // Normaliza o IP IPv6 local
     if (userIP && userIP.includes('::ffff:')) {
         userIP = userIP.replace('::ffff:', '');
     }
 
-    // Se estiver rodando no computador local sem passar um IP de teste, libera o acesso
-    if (userIP === '127.0.0.1' || userIP === '::1' || userIP === 'localhost') {
-        console.log('Navegação Local Detectada (localhost). Acesso liberado sem consulta.');
-        return next();
+    // Permite testes locais sem gastar créditos da API
+    if (userIP === '127.0.0.1' || userIP === '::1') {
+        return res.redirect(TARGET_URL);
     }
 
     try {
-        // Monta a URL da API do IPQS
         const url = `https://www.ipqualityscore.com/api/json/ip/${IPQS_API_KEY}/${userIP}?strictness=1&allow_public_access_points=true`;
         
-        // Faz a requisição à API
         const response = await axios.get(url, { timeout: 3000 });
         const data = response.data;
 
         if (data && data.success) {
-            // Regras de bloqueio
             const isProxyOrVPN = data.proxy || data.vpn || data.tor;
-            const isHighRisk = data.fraud_score >= 75; // Bloqueia fraude acima de 75%
+            const isHighRisk = data.fraud_score >= 75; // Limite de 75%
             const isBot = data.active_bot === true;
 
-            // Se for VPN, Proxy, Bot ou tiver score alto de fraude: Bloqueia
+            // Se for VPN, Proxy, Bot ou Alto Risco: BLOQUEIA
             if (isProxyOrVPN || isHighRisk || isBot) {
-                console.log(`[BLOQUEADO] IP: ${userIP} | Score: ${data.fraud_score} | VPN/Proxy: ${isProxyOrVPN}`);
-                
+                console.log(`[BLOQUEADO] IP: ${userIP} | Risk Score: ${data.fraud_score}`);
                 return res.status(403).send(`
-                    <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-                        <h1 style="color: #d9534f;">Acesso Negado</h1>
-                        <p>Detectamos o uso de conexões mascaradas (VPN/Proxy) ou tráfego não verificado.</p>
-                        <p>Por favor, desative sua VPN ou Proxy para acessar o site.</p>
-                    </div>
+                    <!DOCTYPE html>
+                    <html lang="pt-BR">
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>Acesso Negado</title>
+                        <style>
+                            body { font-family: Arial, sans-serif; background-color: #f4f4f9; text-align: center; padding: 50px; }
+                            .card { background: white; padding: 30px; border-radius: 8px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                            h1 { color: #d9534f; }
+                            p { color: #555; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="card">
+                            <h1>Acesso Negado</h1>
+                            <p>Detectamos que você está utilizando uma conexão mascarada (VPN, Proxy ou Bot).</p>
+                            <p>Por razões de segurança, desative a VPN para prosseguir para o site.</p>
+                        </div>
+                    </body>
+                    </html>
                 `);
             }
         }
 
-        console.log(`[LIBERADO] IP: ${userIP} | Score: ${data.fraud_score}`);
-        next();
+        // Se passar em todas as checagens: REDIRECIONA PARA O SEU SITE
+        console.log(`[PERMITIDO] IP: ${userIP} | Redirecionando...`);
+        return res.redirect(TARGET_URL);
 
     } catch (error) {
-        // Caso a API demore a responder ou falhe, permite a passagem para não derrubar o site
-        console.error('Erro na verificação do IPQS:', error.message);
-        next();
+        // Fallback: Se o IPQS der timeout/erro, permite a passagem para não derrubar seu tráfego
+        console.error('Erro na consulta do IPQS:', error.message);
+        return res.redirect(TARGET_URL);
     }
-};
-
-// Aplica o verificador em todas as rotas
-app.use(verifyTraffic);
-
-// Rota principal
-app.get('/', (req, res) => {
-    res.send(`
-        <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-            <h1 style="color: #5cb85c;">Acesso Permitido!</h1>
-            <p>Seu tráfego foi verificado e você está navegando com um IP real e seguro.</p>
-        </div>
-    `);
 });
 
 app.listen(PORT, () => {
-    console.log(`Servidor rodando com sucesso na porta ${PORT}`);
+    console.log(`Servidor rodando na porta ${PORT}`);
 });
