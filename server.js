@@ -5,7 +5,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // CONFIGURAÇÕES
-const TARGET_URL = 'https://SEU-SITE-AQUI.com'; // Coloque aqui a URL final permitida
+const TARGET_URL = 'https://newsametoday-prod.web.app/'; // Coloque aqui a URL final permitida
 const IPQS_API_KEY = 'CcxLyG6R8RZfOmaVG5koV2ayTwaJeSSA'; // Sua API Key do IPQS
 
 // Habilita a leitura correta do IP real no Render
